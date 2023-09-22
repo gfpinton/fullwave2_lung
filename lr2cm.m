@@ -1,33 +1,26 @@
-%synthetically aerated diseased human lung
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % GIANMARCO PINTON
 % WRITTEN: 2020-04-21
-% LAST MODIFIED: 2021-06-07
+% LAST MODIFIED: 2023-09-22
 % Launch Fullwave 2 code, zero-pressure approach, easy matlab wrapper
-% physical map contains abdominal wall and lung histology (deflated)
+% physical map contains chest wall and lung histology
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 clear all
 close all
 clc
 
-%addpath /work/users/o/l/oleksii
-%cd /work/users/o/l/oleksii/JASA
-addpath /mnt/piave_raid6/oostras/fns
-cd /mnt/piave_raid6/oostras/2023_JASA
+%addpath /mnt/piave_raid6/oostras/fns
+%cd /mnt/piave_raid6/oostras/2023_JASA
 
 cwd=pwd; %current directory to return to that later
 nn=1
 basedir = ['L12_5_Fd_wmod21_2cm_128' num2str(nn) '/'] %folder where to save txrx data and generated images
 eval(['!mkdir -p ' basedir]);
-%for windows:
-%mkdir (basedir);
 
 cd(basedir);
 input = 'input/' %folder where to save generated acoustical maps
 eval(['!mkdir -p ' input]);
-%for windows:
-%mkdir(input);
 cd(cwd);
 
 %for focused sequence:
@@ -98,25 +91,19 @@ icmat(2*nX+round(nX/2)+round(txducer_aperture*beamspacing/2):3*nX,:)=0;
 %%% Generate output coordinates %%%%%%%%%%%%%%%%%%%%%%%%%%
 outmap = zeros(nX,nY);
 outmap(round(nX/2)-round(txducer_aperture*beamspacing/2):round(nX/2)+round(txducer_aperture*beamspacing/2)-1,4) = 1;
-%outmap(round(nX/2)-round(aperture/2):round(nX/2)+round(aperture/2)-1,round(2e-2/dX)) = 1;
 outcoords = mapToCoords(outmap);
 
 %%% Generate field maps %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 materials
 rho0 = 1000
-A0 = 0.5 %change from 0.34... to 0.5
-
-%beamwidth=round(lambda*fnumber/dX);
-%beamspacing=beamwidth/2;
-%beamspacing=round(1.953e-4/dX); %L12-5_50mm has actual spacing 1.953e-4 [m], we use actual/2
-%nlines=nevents; %each subaperture contains 64 out of 256 elements, each other beam is between the elements centers
+A0 = 0.5
 
 load i2365f_etfw1 %body wall
 
-dm=0.33e-3/4; % this is the pixel size in interpd Visual Human slice
+dm=0.33e-3/4; %this is the pixel size in interpd Visual Human slice
 
 %interpolation to elected dX and dY
-mat3=interp2easy(cut,dm/dX,0.655*dm/dY,'nearest');
+mat3=interp2easy(cut,dm/dX,0.655*dm/dY,'nearest'); %tissue compression with txducer
 mat=zeros(size(mat3,1)+500,size(mat3,2));
 mat(1:size(mat3,1),1:size(mat3,2))=mat3;
 mat3=mat; clear mat
@@ -197,13 +184,11 @@ imagesc(originalung), axis equal, axis tight, colorbar
 
 %remove excessive air between pleura and txducer
 for j=1:size(lung,2)
-    %tissueborder=find(lung(:,j)==0);  % find all the black dots in j-th column
     lung(1:find(lung(:,j)==-2,1,'first')-1,j)=-1; % mark the "nothing" above the pleura
     % assign fluid properties to all the shallower dots 
 	lungc(find(lung(:,j))==-1,j)=water.c0-40; %marked fluid
     lungrho(find(lung(:,j))==-1,j)=water.rho0;
     lungA(find(lung(:,j))==-1,j)=water.alpha;
-	% assign connective tissue properties to the 0.2 mm border
 end
 
 imagesc(lung), axis equal, axis tight, colorbar
@@ -213,11 +198,6 @@ lungc=lungc(1:round(529*dm/dX),:);
 lungrho=lungrho(1:round(529*dm/dX),:);
 lungA=lungA(1:round(529*dm/dX),:);
 lung=lung(1:round(529*dm/dX),:);
-
-%smoothing the lung
-%lung=medfilt2(lung,[3 3]);
-%imagesc(lung), axis equal tight, colorbar
-%figure(3), imagesc(lungc), axis equal, axis tight
 
 %%%%%COUNTING AREA ELEMENTS BEFORE MODIFICATIONS%%%%%%%%%%%%%%%%%%
 %count area elements of 4 properties: connective tissue, air, soft tissue, water
@@ -247,9 +227,9 @@ soft_tissue_percent=100*soft_tissue_count/parench_and_air
 parench_fluid=size(find(lung==0),1)
 parench_fluid_percent=100*parench_fluid/parench_and_air
 
-lungc(find(lung==0))=water.c0; %the lung tissue = water/tissue/connective tissue
-lungrho(find(lung==0))=water.rho0;
-lungA(find(lung==0))=water.alpha;
+lungc(find(lung==0))=tissue.c0; %the lung tissue = water/tissue/connective tissue
+lungrho(find(lung==0))=tissue.rho0;
+lungA(find(lung==0))=tissue.alpha;
 
 lungc(find(lung==1))=340;
 
@@ -261,7 +241,6 @@ lungA=lungA';
 %lung histology positioning:
 lat_lung_position=round(size(cmap,1)/2 - size(lungc,1)/2); %lateral
 lung_depth=foc-round(1.1e-3/dY); %depth
-%the same explanation as for fascia_depth
 
 %finally, add it to the maps!
 for i=1:size(lungc,1)
@@ -277,7 +256,6 @@ end
 imagesc(cmap'), axis equal tight, colorbar, colormap parula
 
 %lateral subpleural tissue-air interfaces
-%cext(1:lat_lung_position-1,lung_depth+2*round(vplthickness/dY):end)=340;
 flayerl=round(0.18e-3/dY);
 for i=1:lat_lung_position-1
     pb=find(cmap(i,:)>1500,1,'last');
@@ -312,13 +290,13 @@ cmap(find(cmap<water.c0-30 & cmap>350))=water.c0; %pleural fluid = water?
 rhomap(find(cmap<water.c0-30 & cmap>350))=water.rho0;
 Amap(find(cmap<water.c0-30 & cmap>350))=water.alpha;
 
-
-%replacement of the air with water in the maps
+%replacement of the air with water in the maps - no propagation in these
+%regions, so can be soft tissue properties etc...
 cmap(find(air==-1)) = water.c0;
 rhomap(find(air==-1)) = water.rho0;
 Amap(find(air==-1)) = water.alpha;
 
-rhomap=rhomap-rhomap*rho0*csr; %apply scatterers
+rhomap=rhomap-rhomap*rho0*csr; %apply scatterers - rhomap instead of cmap in current version
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -370,12 +348,6 @@ xlabel('Lateral position [mm]','interpreter','None','fontsize',15,'FontWeight','
 ylabel('Depth [mm]','interpreter','None','fontsize',15,'FontWeight','Bold')
 saveas(gcf, ['airmap_' num2str(event) '.png'], 'png');
 
-%scatteres map
-% imagesc(xo*1e3,yo*1e3,scat_lesion'), axis equal, axis tight, colorbar, colormap parula
-% ax=gca; ax.FontSize=15; ax.FontWeight='Bold';
-% xlabel('Lateral position [mm]','interpreter','None','fontsize',15,'FontWeight','Bold'),
-% ylabel('Depth [mm]','interpreter','None','fontsize',15,'FontWeight','Bold')
-% saveas(gcf, 'scatmap.png', 'png');
 cd(cwd);
 end
 
@@ -384,7 +356,7 @@ incoordszero = mapToCoords(airinmap);
 
 addpath(cwd);
 outdir=[basedir '/txrx_' num2str(event)]; eval(['!mkdir -p ' outdir]); 
-eval(['!cp fullwave2_try6_nln_relaxing_pzero_rebuild3 ' outdir]);
+eval(['!cp fullwave2_try6_nln_relaxing_pzero ' outdir]);
 cd(outdir)
 %%%%%%%%%%%%%%%
 launch_fullwave2_try6_nln_relaxing4_pzero(c0,omega0,wX,wY,duration,p0,ppw,cfl,c,rho,A,beta,incoords,incoordszero,outcoords,icmat)
